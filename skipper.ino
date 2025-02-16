@@ -16,6 +16,11 @@
 #define I2S_BCLK 41  // Bit clock (BCLK)
 #define I2S_DOUT 40  // Data output to MAX98357A (DIN)
 
+#define VRX_PIN 1  // X-axis (Analog)
+#define VRY_PIN 2  // Y-axis (Analog)
+#define SW_PIN 39  // Joystick button (Digital)
+
+
 Adafruit_NeoPixel pixel = Adafruit_NeoPixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 class LGFX : public lgfx::LGFX_Device {
@@ -108,13 +113,12 @@ void MDCallback(void *cbData, const char *type, bool isUnicode, const char *stri
 }
 
 // Called when there's a warning or error (like a buffer underflow or decode hiccup)
-void StatusCallback(void *cbData, int code, const char *string)
-{
+void StatusCallback(void *cbData, int code, const char *string) {
   const char *ptr = reinterpret_cast<const char *>(cbData);
   // Note that the string may be in PROGMEM, so copy it to RAM for printf
   char s1[64];
   strncpy_P(s1, string, sizeof(s1));
-  s1[sizeof(s1)-1]=0;
+  s1[sizeof(s1) - 1] = 0;
   Serial.printf("STATUS(%s) '%d' = '%s'\n", ptr, code, s1);
   Serial.flush();
 }
@@ -177,7 +181,7 @@ void setup() {
   // Open the MP3 file from SD
   file = new AudioFileSourceSD("/music2.mp3");
   buff = new AudioFileSourceBuffer(file, 4096);
-  buff->RegisterStatusCB(StatusCallback, (void*)"buffer");
+  buff->RegisterStatusCB(StatusCallback, (void *)"buffer");
   id3 = new AudioFileSourceID3(buff);
   id3->RegisterMetadataCB(MDCallback, (void *)"ID3TAG");
 
@@ -185,11 +189,27 @@ void setup() {
   mp3 = new AudioGeneratorMP3(space, 29192);
   mp3->begin(id3, out);
 
+  // Joystick
+  pinMode(SW_PIN, INPUT_PULLUP);
+
   // Done!
   Serial.println("Hello from Arduino!");
 }
 
 void loop() {
+  int xValue = analogRead(VRX_PIN);
+  int yValue = analogRead(VRY_PIN);
+  int buttonState = digitalRead(SW_PIN);
+
+  if (xValue < 1800 || xValue > 2200 || yValue < 1800 || yValue > 2200) {
+    Serial.print("X: ");
+    Serial.print(xValue);
+    Serial.print(" | Y: ");
+    Serial.print(yValue);
+    Serial.print(" | Button: ");
+    Serial.println(buttonState == LOW ? "Pressed" : "Not Pressed");
+  }
+
   if (mp3->isRunning()) {
     if (!mp3->loop()) mp3->stop();
   } else {
