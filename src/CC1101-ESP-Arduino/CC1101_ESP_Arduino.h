@@ -165,7 +165,6 @@ enum MOD_FORMAT {
 	MSK = 7
 };
 
-
 class CC1101 {
 	
 	private:

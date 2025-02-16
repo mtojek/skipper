@@ -139,7 +139,7 @@ String buffer;
 ICACHE_RAM_ATTR void radioHandlerOnChange() {
 	int delta_micros = micros() - last_micros;
 	
-	bool input = digitalRead(RADIO_GDO1);
+	bool input = digitalRead(RADIO_GDO2);
 	if (input == 1){
 		buffer += "\n0 -> 1 after " + String(delta_micros);
 	} else {
@@ -221,10 +221,10 @@ void setup() {
   // Radio
   cc1101.init();
 	Serial.printf("CC1101: 0x%02x, version: 0x%02x\n", cc1101.getPartnum(), cc1101.getVersion());
-	cc1101.setMHZ(433.42);
+	cc1101.setMHZ(868.35);
 	cc1101.setTXPwr(TX_0_DBM);
-  cc1101.setRxBW(RX_BW_58_KHZ);
-	cc1101.setDataRate(10000);
+  //cc1101.setRxBW(RX_BW_58_KHZ);
+	cc1101.setDataRate(5000);
 	cc1101.setModulation(ASK_OOK);
 	cc1101.setRx();
 
