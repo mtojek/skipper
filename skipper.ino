@@ -9,6 +9,8 @@
 #include "AudioGeneratorMP3.h"
 #include "AudioOutputI2S.h"
 
+#include "src/CC1101-ESP-Arduino/CC1101_ESP_Arduino.h"
+
 #define LED_PIN 38
 #define SD_CS 7
 
@@ -20,6 +22,12 @@
 #define VRY_PIN 2  // Y-axis (Analog)
 #define SW_PIN 39  // Joystick button (Digital)
 
+#define RADIO_SCK 47
+#define RADIO_MOSI 21
+#define RADIO_CS 48
+#define RADIO_GDO0 45 // TX/input pin
+#define RADIO_GDO1 14 // MISO
+#define RADIO_GDO2 18 // RX/output pin
 
 Adafruit_NeoPixel pixel = Adafruit_NeoPixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -125,6 +133,24 @@ void StatusCallback(void *cbData, int code, const char *string) {
 
 unsigned long lastImageChange = 0;
 
+volatile long last_micros;
+String buffer;
+
+ICACHE_RAM_ATTR void radioHandlerOnChange() {
+	int delta_micros = micros() - last_micros;
+	
+	bool input = digitalRead(RADIO_GDO1);
+	if (input == 1){
+		buffer += "\n0 -> 1 after " + String(delta_micros);
+	} else {
+		buffer += "\n1 -> 0 after " + String(delta_micros);
+	}
+	
+	last_micros = micros();
+}
+
+CC1101 cc1101(RADIO_SCK, RADIO_GDO1, RADIO_MOSI, RADIO_CS, RADIO_GDO0, RADIO_GDO2);
+
 void setup() {
   Serial.begin(115200);
   while (!Serial) {}
@@ -192,9 +218,24 @@ void setup() {
   // Joystick
   pinMode(SW_PIN, INPUT_PULLUP);
 
+  // Radio
+  cc1101.init();
+	Serial.printf("CC1101: 0x%02x, version: 0x%02x\n", cc1101.getPartnum(), cc1101.getVersion());
+	cc1101.setMHZ(433.42);
+	cc1101.setTXPwr(TX_0_DBM);
+  cc1101.setRxBW(RX_BW_58_KHZ);
+	cc1101.setDataRate(10000);
+	cc1101.setModulation(ASK_OOK);
+	cc1101.setRx();
+
+  int interruptPin = digitalPinToInterrupt(RADIO_GDO2);
+	attachInterrupt(interruptPin, radioHandlerOnChange, CHANGE);
+
   // Done!
   Serial.println("Hello from Arduino!");
 }
+
+volatile long last_millis;
 
 void loop() {
   int xValue = analogRead(VRX_PIN);
@@ -210,13 +251,22 @@ void loop() {
     Serial.println(buttonState == LOW ? "Pressed" : "Not Pressed");
   }
 
-  if (mp3->isRunning()) {
+  /*if (mp3->isRunning()) {
     if (!mp3->loop()) mp3->stop();
   } else {
     Serial.printf("MP3 done\n");
     delay(1000);
     return;
-  }
+  }*/
+
+  if (millis() > (last_millis + 5000)){
+		cc1101.setIdle();
+		Serial.println(buffer);
+		buffer = "";
+		cc1101.setRx();
+		
+		last_millis = millis();
+	}
 
   rotateImage();
 }

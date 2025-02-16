@@ -62,6 +62,7 @@ void CC1101::spiStart(){
 	
 	#if defined ESP32
 	SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
+	Serial.println("SPI.begin");
 	#else
 	SPI.begin();
 	#endif
