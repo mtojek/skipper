@@ -9,7 +9,8 @@
 #include "AudioGeneratorMP3.h"
 #include "AudioOutputI2S.h"
 
-#include "src/CC1101-ESP-Arduino/CC1101_ESP_Arduino.h"
+#include <SPI.h>
+#include <RadioLib.h>
 
 #define LED_PIN 38
 #define SD_CS 7
@@ -25,9 +26,9 @@
 #define RADIO_SCK 47
 #define RADIO_MOSI 21
 #define RADIO_CS 48
-#define RADIO_GDO0 45 // TX/input pin
-#define RADIO_GDO1 14 // MISO
-#define RADIO_GDO2 18 // RX/output pin
+#define RADIO_GDO0 45  // TX/input pin
+#define RADIO_GDO1 14  // MISO
+#define RADIO_GDO2 18  // RX/output pin
 
 Adafruit_NeoPixel pixel = Adafruit_NeoPixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -133,23 +134,11 @@ void StatusCallback(void *cbData, int code, const char *string) {
 
 unsigned long lastImageChange = 0;
 
-volatile long last_micros;
-String buffer;
+SPIClass spi2 = SPIClass(HSPI);
+SPISettings spiSettings = SPISettings(10000000, MSBFIRST, SPI_MODE0);
+CC1101 radio = new Module(RADIO_CS, RADIO_GDO0, RADIOLIB_NC, RADIO_GDO2, spi2, spiSettings);
 
-ICACHE_RAM_ATTR void radioHandlerOnChange() {
-	int delta_micros = micros() - last_micros;
-	
-	bool input = digitalRead(RADIO_GDO2);
-	if (input == 1){
-		buffer += "\n0 -> 1 after " + String(delta_micros);
-	} else {
-		buffer += "\n1 -> 0 after " + String(delta_micros);
-	}
-	
-	last_micros = micros();
-}
-
-CC1101 cc1101(RADIO_SCK, RADIO_GDO1, RADIO_MOSI, RADIO_CS, RADIO_GDO0, RADIO_GDO2);
+volatile bool receivedFlag = false;
 
 void setup() {
   Serial.begin(115200);
@@ -219,23 +208,43 @@ void setup() {
   pinMode(SW_PIN, INPUT_PULLUP);
 
   // Radio
-  cc1101.init();
-	Serial.printf("CC1101: 0x%02x, version: 0x%02x\n", cc1101.getPartnum(), cc1101.getVersion());
-	cc1101.setMHZ(868.35);
-	cc1101.setTXPwr(TX_0_DBM);
-  //cc1101.setRxBW(RX_BW_58_KHZ);
-	cc1101.setDataRate(5000);
-	cc1101.setModulation(ASK_OOK);
-	cc1101.setRx();
+  spi2.begin(RADIO_SCK, RADIO_GDO1, RADIO_MOSI, RADIO_CS);
+  //radio.reset();
 
-  int interruptPin = digitalPinToInterrupt(RADIO_GDO2);
-	attachInterrupt(interruptPin, radioHandlerOnChange, CHANGE);
+  int state = radio.beginFSK4(433.92);
+  if (state == RADIOLIB_ERR_NONE) {
+    Serial.println(F("radio success!"));
+  } else {
+    Serial.print(F("radio failed, code "));
+    Serial.println(state);
+    while (true) { delay(10); }
+  }
+
+  Serial.print(F("Radio chip version: "));
+  Serial.println(radio.getChipVersion());
+
+  radio.setOOK(true);
+  radio.setDirectAction(setFlag);
+  radio.setPromiscuousMode();
+
+  // start listening for packets
+  Serial.print(F("[CC1101] Starting to listen ... "));
+  state = radio.receiveDirectAsync();
+  if (state == RADIOLIB_ERR_NONE) {
+    Serial.println(F("success!"));
+  } else {
+    Serial.print(F("failed, code "));
+    Serial.println(state);
+    while (true) { delay(10); }
+  }
 
   // Done!
   Serial.println("Hello from Arduino!");
 }
 
-volatile long last_millis;
+ICACHE_RAM_ATTR void setFlag(void) {
+  receivedFlag = true;
+}
 
 void loop() {
   int xValue = analogRead(VRX_PIN);
@@ -259,14 +268,42 @@ void loop() {
     return;
   }*/
 
-  if (millis() > (last_millis + 5000)){
-		cc1101.setIdle();
-		Serial.println(buffer);
-		buffer = "";
-		cc1101.setRx();
-		
-		last_millis = millis();
-	}
+  if (receivedFlag) {
+    receivedFlag = false;
+
+    String str;
+    int state = radio.readData(str);
+
+    if (radio.getRSSI() > -40) {
+      if (state == RADIOLIB_ERR_NONE) {
+        Serial.println("[CC1101] Received packet!");
+
+        Serial.print("[CC1101] Data:\t\t");
+        Serial.println(str);
+
+        Serial.print("[CC1101] Data (Hex):\t");
+        for (size_t i = 0; i < str.length(); i++) {
+          Serial.print("0x");
+          Serial.print(str[i], HEX);  // Print each character as a hex value
+          Serial.print(" ");
+        }
+        Serial.println();
+
+        Serial.print("[CC1101] RSSI:\t\t");
+        Serial.print(radio.getRSSI());
+        Serial.println(" dBm");
+        Serial.print("[CC1101] LQI:\t\t");
+        Serial.println(radio.getLQI());
+      } else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
+        Serial.println("CRC error!");
+      } else {
+        Serial.print("failed, code ");
+        Serial.println(state);
+      }
+    }
+
+    radio.receiveDirectAsync();
+  }
 
   rotateImage();
 }
